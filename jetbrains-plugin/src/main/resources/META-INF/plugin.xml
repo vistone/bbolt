@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.protonail.bbolt</id>
     <name>bbolt Database</name>
-    <vendor email="support@protonail.com" url="https://github.com/protonail/bolt-jna">Protonail</vendor>
+    <vendor email="vistone@users.noreply.github.com" url="https://github.com/vistone/bbolt">vistone</vendor>
 
     <description><![CDATA[
         <p>A visual browser and JDBC driver integration for BoltDB-compatible embedded key-value databases inside JetBrains IDEs.</p>
@@ -24,7 +24,16 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.8</b><br>
+        <b>1.0.11</b><br>
+        Replaced the double-click interception (which could leave binary garbage in the editor) with an explicit <b>"Open in bbolt Browser"</b> action in the project-view context menu. Right-click any database file (bbolt or jammdb, detected by magic number — any extension works) and choose <i>Open in bbolt Browser</i> to open it in the tool window. The action is only visible/enabled for files that are actually databases. The default double-click behavior is no longer intercepted, so binary files are not opened in the text editor by accident.
+
+        <br><br><b>1.0.10</b><br>
+        Fixed binary garbage showing in the editor area when double-clicking a database file. Replaced the <code>FileEditorProvider</code> approach (which still left a placeholder editor tab) with a <code>FileEditorManagerListener</code> subscribed via a <code>postStartupActivity</code>. Now when a database file is opened, it is redirected to the bbolt Browser tool window and the editor tab is closed immediately, so no binary content is ever shown in the editor.
+
+        <br><br><b>1.0.9</b><br>
+        Double-clicking a database file in the project view now opens it directly in the bbolt Browser tool window without leaving an editor tab open. The tool window is force-initialized if it has never been shown, and the editor tab is closed immediately so the database only appears in the tool window. Also raised the compatibility upper bound to build 261.* to support RustRover 2026.1.
+
+        <br><br><b>1.0.8</b><br>
         Double-click a database file in the IDE project view to open it directly in the bbolt Browser tool window. Format is auto-detected by magic number, so any file extension works. A lightweight placeholder editor replaces the default text editor for binary database files, showing a hint that points to the tool window.
 
         <br><br><b>1.0.7</b><br>
@@ -78,9 +87,8 @@
             language="BBOLT"
             extensions="db"/>
 
-        <!-- Open database files in the tool window when double-clicked in the project view -->
-        <fileEditorProvider
-            implementation="com.protonail.bolt.intellij.file.BoltDatabaseFileEditorProvider"/>
+        <!-- "Open in bbolt Browser" context-menu action for database files in the project view -->
+        <!-- (registered below in <actions> section) -->
 
         <!-- Notification group -->
         <notificationGroup id="bbolt" displayType="BALLOON"/>
@@ -95,6 +103,16 @@
             description="Open a bbolt database file for browsing"
             icon="com.protonail.bolt.intellij.icons.BoltIcons.Open">
             <add-to-group group-id="FileOpenGroup" anchor="last"/>
+        </action>
+
+        <!-- Action: Open in bbolt Browser (context menu in project view) -->
+        <action
+            id="com.protonail.bolt.intellij.actions.OpenInBoltBrowserAction"
+            class="com.protonail.bolt.intellij.actions.OpenInBoltBrowserAction"
+            text="Open in bbolt Browser"
+            description="Open this database file in the bbolt Browser tool window"
+            icon="com.protonail.bolt.intellij.icons.BoltIcons.Database">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="first"/>
         </action>
 
         <!-- Action: Refresh current view (added to tool window toolbar via code) -->

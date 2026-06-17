@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.protonail"
-version = "1.0.8"
+version = "1.0.11"
 
 repositories {
     mavenCentral()
@@ -28,7 +28,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("233")
-        untilBuild.set("999.*")
+        untilBuild.set("261.*")
     }
 
     buildSearchableOptions {
