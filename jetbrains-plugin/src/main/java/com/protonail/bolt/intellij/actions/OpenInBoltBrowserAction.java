@@ -74,15 +74,26 @@ public final class OpenInBoltBrowserAction extends AnAction implements DumbAware
     }
 
     private static boolean isBboltDatabase(@NotNull VirtualFile file) {
-        try {
-            byte[] header = file.contentsToByteArray();
-            if (header.length < 16) return false;
-            // bbolt magic: 0xED0CDAED at offset 8 (little-endian)
-            return (header[8] & 0xFF) == 0xED
-                    && (header[9] & 0xFF) == 0xDA
-                    && (header[10] & 0xFF) == 0x0C
-                    && (header[11] & 0xFF) == 0xED;
+        // Only read the first 32 bytes via stream — never load the whole file
+        // (database files can be huge, and update() is called on every right-click).
+        try (java.io.InputStream in = file.getInputStream()) {
+            byte[] header = new byte[32];
+            int read = 0;
+            while (read < header.length) {
+                int n = in.read(header, read, header.length - read);
+                if (n < 0) break;
+                read += n;
+            }
+            if (read < 20) return false;
+            // bbolt page header is 16 bytes (id:8 + flags:2 + count:2 + overflow:4).
+            // The meta struct begins right after, so the 4-byte magic 0xED0CDAED
+            // is at offset 16, written in little-endian => bytes ED DA 0C ED.
+            return (header[16] & 0xFF) == 0xED
+                    && (header[17] & 0xFF) == 0xDA
+                    && (header[18] & 0xFF) == 0x0C
+                    && (header[19] & 0xFF) == 0xED;
         } catch (Exception ex) {
+            LOG.warn("bbolt detection failed for " + file.getPath() + ": " + ex.getMessage());
             return false;
         }
     }

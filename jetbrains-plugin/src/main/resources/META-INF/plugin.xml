@@ -24,7 +24,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.11</b><br>
+        <b>1.0.13</b><br>
+        Fixed &quot;Open in bbolt Browser&quot; context menu not appearing for some database files. The bbolt detection was using <code>contentsToByteArray()</code> which loads the entire file into memory — for large database files this was slow enough that the action update timed out and the menu item never showed. Switched to streaming only the first 32 bytes via <code>getInputStream()</code> and added diagnostic logging for detection failures.
+
+        <br><br><b>1.0.12</b><br>
+        Fixed the bbolt magic-number detection in the &quot;Open in bbolt Browser&quot; context-menu action. The magic 0xED0CDAED lives in the meta struct, which starts after the 16-byte page header — the previous code checked offset 8 (inside the page header) so bbolt files were never recognized and the action never appeared for them. Now reads offset 16-19 (little-endian ED DA 0C ED). jammdb detection was already correct.
+
+        <br><br><b>1.0.11</b><br>
         Replaced the double-click interception (which could leave binary garbage in the editor) with an explicit <b>"Open in bbolt Browser"</b> action in the project-view context menu. Right-click any database file (bbolt or jammdb, detected by magic number — any extension works) and choose <i>Open in bbolt Browser</i> to open it in the tool window. The action is only visible/enabled for files that are actually databases. The default double-click behavior is no longer intercepted, so binary files are not opened in the text editor by accident.
 
         <br><br><b>1.0.10</b><br>

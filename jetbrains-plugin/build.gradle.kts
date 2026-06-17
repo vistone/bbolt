@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.protonail"
-version = "1.0.11"
+version = "1.0.13"
 
 repositories {
     mavenCentral()
