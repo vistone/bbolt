@@ -24,7 +24,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.13</b><br>
+        <b>1.0.14</b><br>
+        Fixed &quot;Failed to open database: timeout&quot; error when opening a bbolt database that is already locked by another process (e.g. etcd). The plugin now opens bbolt databases in <b>read-only mode</b> with a shared file lock (<code>LOCK_SH</code>) instead of an exclusive lock (<code>LOCK_EX</code>), and increased the lock-acquisition timeout from 5s to 60s. Read-only mode is the correct choice for a browser plugin — it never conflicts with the process that owns the database.
+
+        <br><br><b>1.0.13</b><br>
         Fixed &quot;Open in bbolt Browser&quot; context menu not appearing for some database files. The bbolt detection was using <code>contentsToByteArray()</code> which loads the entire file into memory — for large database files this was slow enough that the action update timed out and the menu item never showed. Switched to streaming only the first 32 bytes via <code>getInputStream()</code> and added diagnostic logging for detection failures.
 
         <br><br><b>1.0.12</b><br>

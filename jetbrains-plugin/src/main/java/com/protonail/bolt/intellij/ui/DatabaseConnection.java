@@ -105,7 +105,13 @@ public abstract class DatabaseConnection implements AutoCloseable {
         public BoltConnection(String dbPath) throws Exception {
             super(dbPath, extractFileName(dbPath));
             BoltNativeLoader.ensureLoaded();
-            BoltOptions options = new BoltOptions(5000);
+            // Open read-only with a generous timeout. The plugin is a browser,
+            // not an editor — read-only mode acquires a *shared* file lock
+            // (LOCK_SH) that does not conflict with the exclusive lock held by
+            // the process that owns the database (e.g. etcd). The previous
+            // read-write mode (exclusive lock) with a 5s timeout caused
+            // "timeout" errors whenever the file was already locked.
+            BoltOptions options = new BoltOptions(60000, false, true, 0, 0);
             try {
                 this.bolt = new Bolt(dbPath, BoltFileMode.DEFAULT, options);
             } finally {
