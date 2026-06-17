@@ -83,17 +83,25 @@ jobs:
           echo "path=$zip_path" >> "$GITHUB_OUTPUT"
           echo "Found: $zip_path"
 
-      # --- Verify plugin.xml version matches tag ----------------------------
+      # --- Verify build.gradle.kts version matches tag ---------------------
+      # Note: plugin.xml has no <version> tag — it's injected by Gradle's
+      # patchPluginXml task at build time, so we only check build.gradle.kts.
       - name: Verify version consistency
         run: |
           tag_version="${{ steps.version.outputs.version }}"
-          xml_version=$(grep -oP '(?<=<version>)[^<]+' jetbrains-plugin/src/main/resources/META-INF/plugin.xml | head -1)
           gradle_version=$(grep -oP '(?<=version = ")[^"]+' jetbrains-plugin/build.gradle.kts)
           echo "Tag version:      $tag_version"
-          echo "plugin.xml:       $xml_version"
           echo "build.gradle.kts: $gradle_version"
-          if [ "$tag_version" != "$xml_version" ] || [ "$tag_version" != "$gradle_version" ]; then
-            echo "::error::Version mismatch — tag=$tag_version, plugin.xml=$xml_version, build.gradle.kts=$gradle_version"
+          if [ "$tag_version" != "$gradle_version" ]; then
+            echo "::error::Version mismatch — tag=$tag_version, build.gradle.kts=$gradle_version"
+            exit 1
+          fi
+          # Also verify the version that was actually injected into the built plugin.xml
+          built_xml=$(unzip -p "${{ steps.zip.outputs.path }}" "*/META-INF/plugin.xml")
+          xml_version=$(echo "$built_xml" | grep -oP '(?<=<version>)[^<]+')
+          echo "Built plugin.xml: $xml_version"
+          if [ "$tag_version" != "$xml_version" ]; then
+            echo "::error::Version mismatch — tag=$tag_version, built plugin.xml=$xml_version"
             exit 1
           fi
 
