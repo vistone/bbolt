@@ -10,3 +10,10 @@ target/
 
 # GO staff
 vendor/pkg
+
+# JetBrains plugin Gradle build output
+jetbrains-plugin/build/
+jetbrains-plugin/.gradle/
+
+# Local Maven artifacts (already installed via mvn install)
+# bolt-jna-core/target/ is covered by target/ above

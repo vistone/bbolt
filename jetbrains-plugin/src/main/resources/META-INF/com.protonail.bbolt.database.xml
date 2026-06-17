@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Database integration extensions (only loaded when Database plugin is present) -->
+    <!-- These extensions will be added in a future version with full Database plugin support -->
+</idea-plugin>

@@ -1,0 +1,108 @@
+<idea-plugin>
+    <id>com.protonail.bbolt</id>
+    <name>bbolt Database</name>
+    <vendor email="support@protonail.com" url="https://github.com/protonail/bolt-jna">Protonail</vendor>
+
+    <description><![CDATA[
+        <p>A visual browser and JDBC driver integration for BoltDB-compatible embedded key-value databases inside JetBrains IDEs.</p>
+
+        <h3>Supported database formats</h3>
+        <ul>
+            <li><b>bbolt (BoltDB)</b> — the Go ecosystem's embedded key-value store (github.com/etcd-io/bbolt). Files are opened through a native library (bolt-jna) for full read/write access.</li>
+            <li><b>jammdb</b> — a Java/JVM-friendly BoltDB-compatible store (github.com/pjtatlow/jammdb). Files are parsed directly in Java, including support for overflow pages that store values larger than a single page.</li>
+        </ul>
+        <p>The plugin auto-detects the underlying format by the file's magic number, so the same UI works for both.</p>
+
+        <h3>Features</h3>
+        <ul>
+            <li>Open and browse <code>.db</code> files in a dedicated tool window</li>
+            <li>Navigate bucket hierarchies in a tree view (nested buckets supported)</li>
+            <li>View key-value pairs of any bucket, including large values that span multiple pages</li>
+            <li>Execute SQL-like queries on buckets (bbolt, via JDBC)</li>
+            <li>Format auto-detection — no manual configuration required</li>
+        </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.8</b><br>
+        Double-click a database file in the IDE project view to open it directly in the bbolt Browser tool window. Format is auto-detected by magic number, so any file extension works. A lightweight placeholder editor replaces the default text editor for binary database files, showing a hint that points to the tool window.
+
+        <br><br><b>1.0.7</b><br>
+        Tree view refinements: nodes now use distinct colors to differentiate database files (deep blue), buckets (dark teal), and keys (default foreground) instead of all-gray. Enabled classic angled tree connection lines (<code>JTree.lineStyle=Angled</code>) so parent-child relationships are visually clear.
+
+        <br><br><b>1.0.6</b><br>
+        Replaced the project icon with a vector SVG derived from the etcd logo (with the "etcd" wordmark removed). The SVG traces the hexagonal gear outline, the center hexagonal hole, and the two "eyes", using <code>fill-rule="evenodd"</code> for correct nesting. As a true vector icon, it scales cleanly to any size (13x13, 16x16, 32x32) without blurring or distortion. All primary icon locations (tool window, database nodes, bucket nodes, key nodes, file type) now use this icon.
+
+        <br><br><b>1.0.5</b><br>
+        Refined UI to match native JetBrains IDE look-and-feel: replaced raw <code>JToolBar</code>/<code>JButton</code> with <code>ActionToolbar</code> and <code>AnAction</code> (Open/Close/Refresh); switched from <code>JPanel</code> to <code>SimpleToolWindowPanel</code>; replaced <code>JTable</code> with <code>JBTable</code> (proper row height, empty-state text, header styling); replaced <code>JLabel</code> with <code>JBLabel</code> using context-help foreground color and small font for status/pagination; pagination buttons now use platform icons (<code>AllIcons.Actions.Back/Forward</code>); tree renderer distinguishes database/bucket nodes with proper icons and borders; bottom bar has a top border separator. Removed the <code>.db</code> extension filter from the file chooser — any file can be opened regardless of extension, with format auto-detected by magic number.
+
+        <br><br><b>1.0.4</b><br>
+        Support opening multiple database files simultaneously. Each open database appears as a separate top-level node in the bucket tree, with its own buckets and pagination state. Added a "Close" toolbar button to close the selected database. Fixed pagination button state updates: buttons are now reliably enabled/disabled after each page load, with stale-result guards to handle rapid bucket switching.
+
+        <br><br><b>1.0.3</b><br>
+        Pagination support for large buckets. Bucket contents are now loaded page by page (500 entries per page) instead of loading the entire bucket into memory, preventing OutOfMemoryError on databases with millions of entries. Added prev/next page navigation controls. Values larger than 64 KB are truncated in preview mode and can be fetched in full on demand via <code>getValue()</code>.
+
+        <br><br><b>1.0.2</b><br>
+        Fix <code>BufferUnderflowException</code> when reading jammdb buckets that contain large values spanning multiple pages (overflow pages). The reader now allocates a buffer covering all overflow pages before parsing leaf elements. Added unit tests covering the large-value scenario.
+
+        <br><br><b>1.0.1</b><br>
+        Added jammdb database format support alongside the existing bbolt support, with automatic format detection by magic number.
+
+        <br><br><b>1.0.0</b><br>
+        Initial release: JDBC driver integration and visual browser for bbolt databases.
+    ]]></change-notes>
+
+    <!-- Database plugin is optional (only available in Ultimate) -->
+    <depends optional="true" config-file="com.protonail.bbolt.database.xml">com.intellij.database</depends>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application service for native library loading -->
+        <applicationService serviceImplementation="com.protonail.bolt.intellij.BoltNativeLoader"/>
+
+        <!-- Startup activity to initialize native library on IDE start -->
+        <postStartupActivity implementation="com.protonail.bolt.intellij.BoltStartupActivity"/>
+
+        <!-- Tool window for bbolt browser -->
+        <toolWindow
+            id="bbolt Browser"
+            anchor="right"
+            icon="com.protonail.bolt.intellij.icons.BoltIcons.ToolWindow"
+            factoryClass="com.protonail.bolt.intellij.ui.BoltToolWindowFactory"/>
+
+        <!-- File type association for .db bolt files -->
+        <fileType
+            name="Bolt Database"
+            implementationClass="com.protonail.bolt.intellij.file.BoltFileType"
+            fieldName="INSTANCE"
+            language="BBOLT"
+            extensions="db"/>
+
+        <!-- Open database files in the tool window when double-clicked in the project view -->
+        <fileEditorProvider
+            implementation="com.protonail.bolt.intellij.file.BoltDatabaseFileEditorProvider"/>
+
+        <!-- Notification group -->
+        <notificationGroup id="bbolt" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <!-- Action: Open bbolt database file -->
+        <action
+            id="com.protonail.bolt.intellij.actions.OpenBoltDatabaseAction"
+            class="com.protonail.bolt.intellij.actions.OpenBoltDatabaseAction"
+            text="Open bbolt Database"
+            description="Open a bbolt database file for browsing"
+            icon="com.protonail.bolt.intellij.icons.BoltIcons.Open">
+            <add-to-group group-id="FileOpenGroup" anchor="last"/>
+        </action>
+
+        <!-- Action: Refresh current view (added to tool window toolbar via code) -->
+        <action
+            id="com.protonail.bolt.intellij.actions.RefreshAction"
+            class="com.protonail.bolt.intellij.actions.RefreshAction"
+            text="Refresh"
+            description="Refresh the bbolt browser view"
+            icon="com.protonail.bolt.intellij.icons.BoltIcons.Refresh"/>
+    </actions>
+</idea-plugin>
