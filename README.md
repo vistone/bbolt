@@ -91,6 +91,44 @@ cd jetbrains-plugin
 jetbrains-plugin/build/distributions/bbolt-jetbrains-plugin-<version>.zip
 ```
 
+## 发布流程
+
+通过推送版本 tag 手动触发 GitHub Actions 自动构建并发布 Release。
+
+### 快速发布
+
+```bash
+# 1. 更新版本号（两处必须一致）
+#    - jetbrains-plugin/build.gradle.kts        → version = "x.y.z"
+#    - jetbrains-plugin/src/main/.../plugin.xml → <change-notes> 顶部加新版本说明
+
+# 2. 提交、打 tag、推送
+git add jetbrains-plugin/build.gradle.kts \
+        jetbrains-plugin/src/main/resources/META-INF/plugin.xml
+git commit -m "release: vx.y.z"
+git tag -a vx.y.z -m "vx.y.z: 简短描述"
+git push origin master
+git push origin vx.y.z      # ← 推送 tag 即触发发布
+```
+
+推送 tag 后访问 https://github.com/vistone/bbolt/actions 查看 workflow 状态，完成后 Release 自动出现在 https://github.com/vistone/bbolt/releases 。
+
+### 重新发布同一版本（CI 失败时）
+
+```bash
+git push origin :refs/tags/vx.y.z          # 删除远程 tag
+git commit -am "fix: ..." && git push origin master
+git tag -a vx.y.z -m "vx.y.z: 简短描述"
+git push origin vx.y.z
+```
+
+### CI Workflow 说明
+
+| Workflow | 触发条件 | 作用 |
+|----------|----------|------|
+| `CI` | push 到 master 或 PR | 验证构建和测试通过 |
+| `Release` | 推送 `v*.*.*` tag | 构建插件并创建 GitHub Release |
+
 ## 安装方法
 
 1. 在 JetBrains IDE 中打开：`File` → `Settings` → `Plugins`
@@ -119,9 +157,15 @@ jetbrains-plugin/build/distributions/bbolt-jetbrains-plugin-<version>.zip
 ## 兼容性
 
 - **IDE 版本**：2023.3 及以上（sinceBuild 233，untilBuild 999.*）
-- **操作系统**：Linux x86-64（已内置 libbolt.so；其他平台需自行编译 bbolt 原生库）
-- **bbolt 格式**：通过 JNA 原生库支持，需 libbolt.so
-- **jammdb 格式**：纯 Java 实现，无平台依赖
+- **操作系统**：
+  - ✅ Linux x86-64（已内置 libbolt.so）
+  - ✅ Windows x86-64（已内置 bolt.dll）
+  - ✅ Mac x86-64/arm64（执行 `./build-native.sh` 脚本即可自动编译对应原生库）
+- **bbolt 格式**：通过 JNA 原生库支持，对应平台的库已内置/可一键编译
+- **jammdb 格式**：纯 Java 实现，全平台无依赖
+
+### 编译 macOS 原生库
+在 macOS 机器上执行项目根目录下的 `./build-native.sh` 脚本，会自动编译 x86_64 和 arm64 两个架构的原生库，生成后会自动放到插件资源目录，重新打包插件即可支持 macOS 平台。
 
 ## 技术说明
 
