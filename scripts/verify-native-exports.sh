@@ -33,7 +33,7 @@ case "$TARGET" in
     ;;
   windows-x86-64)
     command -v objdump >/dev/null 2>&1 || { echo "objdump is required" >&2; exit 1; }
-    SYMBOLS="$(objdump -p "$LIBRARY")"
+    SYMBOLS="$(objdump -p "$LIBRARY" | awk '/\[Ordinal\/Name Pointer\] Table/{in_names=1; next} in_names && /^[[:space:]]*The /{in_names=0} in_names {print}')"
     PREFIX=""
     ;;
   *)
@@ -44,7 +44,7 @@ esac
 
 for symbol in "${REQUIRED_SYMBOLS[@]}"; do
   expected="${PREFIX}${symbol}"
-  if ! printf '%s\n' "$SYMBOLS" | grep -Eq "(^|[[:space:]])${expected}([[:space:]]|$)"; then
+  if ! printf '%s\n' "$SYMBOLS" | grep -Eq "[[:space:]]${expected}$"; then
     echo "Missing exported symbol ${expected} in ${LIBRARY}" >&2
     exit 1
   fi
