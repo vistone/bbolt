@@ -8,20 +8,20 @@ typedef unsigned long long ObjectId;
 
 typedef unsigned int FileMode;
 
-extern void Free(void* ptr);
+extern void bolt_Free(void* ptr);
 
 typedef struct {
 	ObjectId objectId;
 	String error;
 } Result;
 
-extern void Result_Free(Result result);
+extern void bolt_Result_Free(Result result);
 
 typedef struct {
 	String error;
 } Error;
 
-extern void Error_Free(Error error);
+extern void bolt_Error_Free(Error error);
 
 typedef struct {
 	void* key;
@@ -40,7 +40,7 @@ typedef struct {
     String error;
 } Sequence;
 
-extern void Sequence_Free(Sequence sequence);
+extern void bolt_Sequence_Free(Sequence sequence);
 
 typedef struct {
     int pageCount;

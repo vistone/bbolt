@@ -24,7 +24,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.15</b><br>
+        <b>1.0.16</b><br>
+        Added release-grade cross-platform native packaging. GitHub Actions now builds the bbolt native library on Windows x86-64, Linux x86-64, macOS Intel, and macOS Apple Silicon runners, then packages all four native resources into one verified plugin zip.
+
+        <br><br><b>1.0.15</b><br>
         Added Windows x86-64 platform support! The plugin now includes a precompiled `bolt.dll` native library for Windows, enabling bbolt database browsing on Windows systems. Added a cross-platform build script `build-native.sh` that automatically compiles native libraries for Linux, Windows, and macOS (on respective platforms). Updated README with compatibility documentation for all supported operating systems.
 
         <br><br><b>1.0.14</b><br>
