@@ -27,6 +27,9 @@ jobs:
       - name: Build native library
         run: bash build-native.sh linux-x86-64 native-artifacts
 
+      - name: Verify native exports
+        run: bash scripts/verify-native-exports.sh linux-x86-64 native-artifacts/linux-x86-64/libbolt.so
+
       - name: Upload Linux native artifact
         uses: actions/upload-artifact@v4
         with:
@@ -56,6 +59,10 @@ jobs:
         shell: msys2 {0}
         run: bash build-native.sh windows-x86-64 native-artifacts
 
+      - name: Verify native exports
+        shell: msys2 {0}
+        run: bash scripts/verify-native-exports.sh windows-x86-64 native-artifacts/win32-x86-64/bolt.dll
+
       - name: Upload Windows native artifact
         uses: actions/upload-artifact@v4
         with:
@@ -80,8 +87,14 @@ jobs:
       - name: Build macOS Intel library
         run: bash build-native.sh darwin-x86-64 native-artifacts
 
+      - name: Verify macOS Intel exports
+        run: bash scripts/verify-native-exports.sh darwin-x86-64 native-artifacts/darwin-x86-64/libbolt.dylib
+
       - name: Build macOS Apple Silicon library
         run: bash build-native.sh darwin-aarch64 native-artifacts
+
+      - name: Verify macOS Apple Silicon exports
+        run: bash scripts/verify-native-exports.sh darwin-aarch64 native-artifacts/darwin-aarch64/libbolt.dylib
 
       - name: Upload macOS native artifacts
         uses: actions/upload-artifact@v4
