@@ -27,7 +27,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.19</b><br>
+        <b>1.0.20</b><br>
+        Replaced deprecated IntelliJ Platform dialog APIs in the New Database flow so plugin verification no longer reports deprecated FileSaverDescriptor or Messages chooser usage.
+
+        <br><br><b>1.0.19</b><br>
         Added a New Database flow in the tool window. You can now create either bbolt or jammdb database files, choose the target path, refuse accidental overwrites, and open the new database immediately after creation.
 
         <br><br><b>1.0.18</b><br>
