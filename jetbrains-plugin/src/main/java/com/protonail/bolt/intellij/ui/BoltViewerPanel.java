@@ -7,12 +7,10 @@ import com.intellij.openapi.actionSystem.ActionToolbar;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileChooser.FileChooserFactory;
-import com.intellij.openapi.fileChooser.FileSaverDescriptor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
-import com.intellij.openapi.vfs.VirtualFileWrapper;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
@@ -38,6 +36,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -217,37 +216,23 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
      * Creates a new database, then opens it in the browser.
      */
     public void createDatabaseDialog() {
-        String[] formats = {
-                DatabaseConnection.DatabaseFormat.BBOLT.getDisplayName(),
-                DatabaseConnection.DatabaseFormat.JAMMDB.getDisplayName()
-        };
-        int selected = Messages.showChooseDialog(
-                project,
-                "Select the database format to create.",
-                "New Database",
-                AllIcons.General.Add,
-                formats,
-                formats[0]);
-        if (selected < 0) {
+        CreateDatabaseDialog dialog = new CreateDatabaseDialog(project);
+        if (!dialog.showAndGet()) {
             return;
         }
 
-        DatabaseConnection.DatabaseFormat format = selected == 1
-                ? DatabaseConnection.DatabaseFormat.JAMMDB
-                : DatabaseConnection.DatabaseFormat.BBOLT;
+        DatabaseConnection.DatabaseFormat format = dialog.getSelectedFormat();
         String defaultName = format == DatabaseConnection.DatabaseFormat.JAMMDB ? "new-jammdb.db" : "new-bbolt.db";
-        FileSaverDescriptor descriptor = new FileSaverDescriptor(
-                "Create " + format.getDisplayName() + " Database",
-                "Choose where to create the new database file.",
-                "db");
-        VirtualFileWrapper file = FileChooserFactory.getInstance()
-                .createSaveFileDialog(descriptor, project)
-                .save((java.nio.file.Path) null, defaultName);
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Create " + format.getDisplayName() + " Database");
+        chooser.setSelectedFile(new File(defaultName));
+        int result = chooser.showSaveDialog(this);
+        File file = result == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
         if (file == null) {
             return;
         }
 
-        String dbPath = file.getFile().getAbsolutePath();
+        String dbPath = file.getAbsolutePath();
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
                 DatabaseConnection.createDatabase(dbPath, format);
@@ -261,6 +246,44 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                         Messages.showErrorDialog(project, "Failed to create database: " + e.getMessage(), "Error"));
             }
         });
+    }
+
+    private static final class CreateDatabaseDialog extends DialogWrapper {
+        private final JComboBox<DatabaseConnection.DatabaseFormat> formatComboBox =
+                new JComboBox<>(DatabaseConnection.DatabaseFormat.values());
+
+        private CreateDatabaseDialog(@NotNull Project project) {
+            super(project, true);
+            setTitle("New Database");
+            init();
+        }
+
+        private DatabaseConnection.DatabaseFormat getSelectedFormat() {
+            Object selected = formatComboBox.getSelectedItem();
+            return selected instanceof DatabaseConnection.DatabaseFormat
+                    ? (DatabaseConnection.DatabaseFormat) selected
+                    : DatabaseConnection.DatabaseFormat.BBOLT;
+        }
+
+        @Override
+        protected @Nullable JComponent createCenterPanel() {
+            formatComboBox.setRenderer((list, value, index, isSelected, cellHasFocus) -> {
+                JBLabel label = new JBLabel(value == null ? "" : value.getDisplayName());
+                if (isSelected) {
+                    label.setOpaque(true);
+                    label.setBackground(list.getSelectionBackground());
+                    label.setForeground(list.getSelectionForeground());
+                }
+                label.setBorder(JBUI.Borders.empty(2, 4));
+                return label;
+            });
+
+            JBPanel<?> panel = new JBPanel<>(new BorderLayout(8, 8));
+            panel.setBorder(JBUI.Borders.empty(8));
+            panel.add(new JBLabel("Database format:"), BorderLayout.WEST);
+            panel.add(formatComboBox, BorderLayout.CENTER);
+            return panel;
+        }
     }
 
     @NotNull
