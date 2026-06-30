@@ -6,6 +6,8 @@ import com.sun.jna.Pointer;
 public interface JammdbNative extends Library {
     JammdbNative INSTANCE = JammdbNativeLoader.load();
 
+    Pointer Jammdb_CreateDatabase(String dbPath);
+
     Pointer Jammdb_PutValue(String dbPath, String bucketPath, byte[] key, int keyLen, byte[] value, int valueLen);
 
     Pointer Jammdb_DeleteValue(String dbPath, String bucketPath, byte[] key, int keyLen);
