@@ -18,13 +18,18 @@
             <li>Open and browse <code>.db</code> files in a dedicated tool window</li>
             <li>Navigate bucket hierarchies in a tree view (nested buckets supported)</li>
             <li>View key-value pairs of any bucket, including large values that span multiple pages</li>
+            <li>Edit bbolt databases: add, update, and delete key-value pairs, plus create and delete buckets</li>
+            <li>Search the current bucket by key or value text</li>
             <li>Execute SQL-like queries on buckets (bbolt, via JDBC)</li>
             <li>Format auto-detection — no manual configuration required</li>
         </ul>
     ]]></description>
 
     <change-notes><![CDATA[
-        <b>1.0.16</b><br>
+        <b>1.0.17</b><br>
+        Added editing and search in the bbolt Browser tool window. bbolt files can now add, update, and delete key-value pairs, create buckets, delete buckets, and filter the selected bucket by key or value text. jammdb remains safely read-only and reports that editing is unsupported.
+
+        <br><br><b>1.0.16</b><br>
         Added release-grade cross-platform native packaging. GitHub Actions now builds the bbolt native library on Windows x86-64, Linux x86-64, macOS Intel, and macOS Apple Silicon runners, then packages all four native resources into one verified plugin zip.
 
         <br><br><b>1.0.15</b><br>
