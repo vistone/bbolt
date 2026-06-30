@@ -1,6 +1,7 @@
 package com.protonail.bolt.intellij.ui;
 
 import com.protonail.bolt.intellij.BoltNativeLoader;
+import com.protonail.bolt.intellij.jammdb.JammdbNative;
 import com.protonail.bolt.intellij.jammdb.JammdbReader;
 import com.protonail.bolt.jna.Bolt;
 import com.protonail.bolt.jna.BoltBucket;
@@ -330,7 +331,9 @@ public abstract class DatabaseConnection implements AutoCloseable {
     // ========================================================================
 
     public static class JammdbConnection extends DatabaseConnection {
-        private final JammdbReader reader;
+        private static final String PATH_SEPARATOR = "\u001f";
+
+        private JammdbReader reader;
 
         public JammdbConnection(String dbPath) throws IOException {
             super(dbPath, extractFileName(dbPath));
@@ -339,6 +342,9 @@ public abstract class DatabaseConnection implements AutoCloseable {
 
         @Override
         public String getFormatName() { return "jammdb"; }
+
+        @Override
+        public boolean supportsEditing() { return true; }
 
         @Override
         public List<byte[]> listRootBuckets() throws Exception {
@@ -362,8 +368,53 @@ public abstract class DatabaseConnection implements AutoCloseable {
         }
 
         @Override
+        public void putValue(List<byte[]> bucketPath, byte[] key, byte[] value) throws Exception {
+            runNativeEdit(() -> JammdbNative.check(JammdbNative.INSTANCE.Jammdb_PutValue(
+                    dbPath, encodeBucketPath(bucketPath), key, key.length, value, value.length)));
+        }
+
+        @Override
+        public void deleteValue(List<byte[]> bucketPath, byte[] key) throws Exception {
+            runNativeEdit(() -> JammdbNative.check(JammdbNative.INSTANCE.Jammdb_DeleteValue(
+                    dbPath, encodeBucketPath(bucketPath), key, key.length)));
+        }
+
+        @Override
+        public void createBucket(List<byte[]> parentBucketPath, byte[] bucketName) throws Exception {
+            runNativeEdit(() -> JammdbNative.check(JammdbNative.INSTANCE.Jammdb_CreateBucket(
+                    dbPath, encodeBucketPath(parentBucketPath), bucketName, bucketName.length)));
+        }
+
+        @Override
+        public void deleteBucket(List<byte[]> parentBucketPath, byte[] bucketName) throws Exception {
+            runNativeEdit(() -> JammdbNative.check(JammdbNative.INSTANCE.Jammdb_DeleteBucket(
+                    dbPath, encodeBucketPath(parentBucketPath), bucketName, bucketName.length)));
+        }
+
+        @Override
         public void close() {
             try { reader.close(); } catch (Exception ignored) {}
+        }
+
+        private void runNativeEdit(NativeEdit edit) throws Exception {
+            close();
+            try {
+                edit.run();
+            } finally {
+                reader = new JammdbReader(Path.of(dbPath));
+            }
+        }
+
+        private static String encodeBucketPath(List<byte[]> bucketPath) {
+            List<String> parts = new ArrayList<>(bucketPath.size());
+            for (byte[] name : bucketPath) {
+                parts.add(new String(name, StandardCharsets.UTF_8));
+            }
+            return String.join(PATH_SEPARATOR, parts);
+        }
+
+        private interface NativeEdit {
+            void run() throws Exception;
         }
     }
 

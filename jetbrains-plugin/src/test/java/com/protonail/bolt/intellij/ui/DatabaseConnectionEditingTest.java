@@ -2,6 +2,8 @@ package com.protonail.bolt.intellij.ui;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -28,14 +30,28 @@ class DatabaseConnectionEditingTest {
     }
 
     @Test
-    void jammdbConnectionsReportReadOnlyAndRejectEdits() throws Exception {
-        try (DatabaseConnection connection = DatabaseConnection.open(
-                Paths.get("src/test/resources/jammdb/sample.db").toString())) {
-            assertFalse(connection.supportsEditing());
+    void jammdbConnectionsSupportPutDeleteAndBucketEdits() throws Exception {
+        Path dbCopy = Files.createTempFile("bbolt-jammdb-editing", ".db");
+        Files.copy(Paths.get("src/test/resources/jammdb/sample.db"), dbCopy,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-            UnsupportedOperationException ex = assertThrows(UnsupportedOperationException.class,
-                    () -> connection.putValue(Collections.singletonList(b("users")), b("new"), b("value")));
-            assertTrue(ex.getMessage().contains("does not support editing"));
+        try (DatabaseConnection connection = DatabaseConnection.open(dbCopy.toString())) {
+            assertTrue(connection.supportsEditing());
+
+            connection.putValue(Collections.singletonList(b("users")), b("new_user"), b("alice-updated"));
+            assertArrayEquals(b("alice-updated"),
+                    connection.getValue(Collections.singletonList(b("users")), b("new_user")));
+
+            connection.deleteValue(Collections.singletonList(b("users")), b("new_user"));
+            assertNull(connection.getValue(Collections.singletonList(b("users")), b("new_user")));
+
+            connection.createBucket(Collections.emptyList(), b("codex_bucket"));
+            assertTrue(connection.listRootBuckets().stream().anyMatch(name -> Arrays.equals(name, b("codex_bucket"))));
+
+            connection.deleteBucket(Collections.emptyList(), b("codex_bucket"));
+            assertFalse(connection.listRootBuckets().stream().anyMatch(name -> Arrays.equals(name, b("codex_bucket"))));
+        } finally {
+            Files.deleteIfExists(dbCopy);
         }
     }
 
