@@ -23,8 +23,14 @@ jobs:
         with:
           go-version: '1.22'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build native library
         run: bash build-native.sh linux-x86-64 native-artifacts
+
+      - name: Build jammdb native bridge
+        run: bash scripts/build-jammdb-native.sh linux-x86-64 native-artifacts
 
       - name: Verify native exports
         run: bash scripts/verify-native-exports.sh linux-x86-64 native-artifacts/linux-x86-64/libbolt.so
@@ -54,9 +60,16 @@ jobs:
             mingw-w64-x86_64-go
             mingw-w64-x86_64-gcc
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build native library
         shell: msys2 {0}
         run: bash build-native.sh windows-x86-64 native-artifacts
+
+      - name: Build jammdb native bridge
+        shell: bash
+        run: bash scripts/build-jammdb-native.sh windows-x86-64 native-artifacts
 
       - name: Verify native exports
         shell: msys2 {0}
@@ -83,14 +96,23 @@ jobs:
         with:
           go-version: '1.22'
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build macOS Intel library
         run: bash build-native.sh darwin-x86-64 native-artifacts
+
+      - name: Build macOS Intel jammdb bridge
+        run: bash scripts/build-jammdb-native.sh darwin-x86-64 native-artifacts
 
       - name: Verify macOS Intel exports
         run: bash scripts/verify-native-exports.sh darwin-x86-64 native-artifacts/darwin-x86-64/libbolt.dylib
 
       - name: Build macOS Apple Silicon library
         run: bash build-native.sh darwin-aarch64 native-artifacts
+
+      - name: Build macOS Apple Silicon jammdb bridge
+        run: bash scripts/build-jammdb-native.sh darwin-aarch64 native-artifacts
 
       - name: Verify macOS Apple Silicon exports
         run: bash scripts/verify-native-exports.sh darwin-aarch64 native-artifacts/darwin-aarch64/libbolt.dylib

@@ -27,6 +27,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
@@ -72,6 +74,11 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
     private JButton deleteKeyBtn;
     private JButton createBucketBtn;
     private JButton deleteBucketBtn;
+    private JBLabel detailKeyLabel;
+    private JTextArea detailValueArea;
+    private JButton applyValueBtn;
+    private JButton revertValueBtn;
+    @Nullable private DatabaseConnection.Entry detailEntry = null;
     private String currentQuery = "";
     private final List<DatabaseConnection.Entry> currentVisibleValues = new ArrayList<>();
 
@@ -93,6 +100,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         // Enable tree connection lines (horizontal + vertical, like classic tree views)
         bucketTree.putClientProperty("JTree.lineStyle", "Angled");
         bucketTree.addTreeSelectionListener(e -> onBucketSelected());
+        bucketTree.setComponentPopupMenu(createTreePopupMenu());
 
         JBScrollPane treeScroll = new JBScrollPane(bucketTree);
 
@@ -109,13 +117,29 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         keyValueTable.getTableHeader().setReorderingAllowed(false);
         keyValueTable.getEmptyText().setText("Select a bucket to view its key-value pairs");
         keyValueTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updateEditControls();
+            if (!e.getValueIsAdjusting()) {
+                updateDetailEditor();
+                updateEditControls();
+            }
         });
+        keyValueTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                    editSelectedValue();
+                }
+            }
+        });
+        keyValueTable.setComponentPopupMenu(createTablePopupMenu());
+        installTableShortcuts();
 
         JBScrollPane tableScroll = new JBScrollPane(keyValueTable);
         JPanel tablePanel = new JPanel(new BorderLayout());
         tablePanel.add(createTableCommandBar(), BorderLayout.NORTH);
-        tablePanel.add(tableScroll, BorderLayout.CENTER);
+        JSplitPane dataAndDetail = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tableScroll, createDetailEditor());
+        dataAndDetail.setResizeWeight(0.75);
+        dataAndDetail.setBorder(null);
+        tablePanel.add(dataAndDetail, BorderLayout.CENTER);
 
         // --- Splitter ---
         JBSplitter splitter = new JBSplitter(false, 0.3f);
@@ -200,6 +224,12 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
             searchField.setText("");
             applySearch();
         });
+        searchField.registerKeyboardAction(e -> {
+                    searchField.setText("");
+                    applySearch();
+                },
+                KeyStroke.getKeyStroke("ESCAPE"),
+                JComponent.WHEN_FOCUSED);
 
         addKeyBtn = new JButton("Add", AllIcons.General.Add);
         addKeyBtn.setToolTipText("Add key-value");
@@ -242,6 +272,87 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         bar.add(editPanel, BorderLayout.EAST);
         updateEditControls();
         return bar;
+    }
+
+    @NotNull
+    private JComponent createDetailEditor() {
+        detailKeyLabel = new JBLabel("No row selected");
+        detailKeyLabel.setBorder(JBUI.Borders.empty(0, 2));
+
+        detailValueArea = new JTextArea(4, 20);
+        detailValueArea.setLineWrap(true);
+        detailValueArea.setWrapStyleWord(false);
+        detailValueArea.setFont(UIUtil.getLabelFont());
+        detailValueArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { updateDetailButtons(); }
+            @Override public void removeUpdate(DocumentEvent e) { updateDetailButtons(); }
+            @Override public void changedUpdate(DocumentEvent e) { updateDetailButtons(); }
+        });
+
+        applyValueBtn = new JButton("Apply", AllIcons.Actions.Commit);
+        applyValueBtn.addActionListener(e -> applyDetailValue());
+
+        revertValueBtn = new JButton("Revert", AllIcons.Actions.Rollback);
+        revertValueBtn.addActionListener(e -> updateDetailEditor());
+
+        JBPanel<?> header = new JBPanel<>(new BorderLayout(6, 0));
+        header.setBorder(JBUI.Borders.empty(4, 4));
+        header.add(detailKeyLabel, BorderLayout.CENTER);
+
+        JBPanel<?> buttons = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        buttons.add(revertValueBtn);
+        buttons.add(applyValueBtn);
+        header.add(buttons, BorderLayout.EAST);
+
+        JBPanel<?> panel = new JBPanel<>(new BorderLayout());
+        panel.setBorder(JBUI.Borders.customLine(JBColor.border(), 1, 0, 0, 0));
+        panel.add(header, BorderLayout.NORTH);
+        panel.add(new JBScrollPane(detailValueArea), BorderLayout.CENTER);
+        updateDetailEditor();
+        return panel;
+    }
+
+    private JPopupMenu createTablePopupMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        addMenuItem(menu, "Add Key-Value", AllIcons.General.Add, this::addKeyValue);
+        addMenuItem(menu, "Edit Value", AllIcons.Actions.Edit, this::editSelectedValue);
+        addMenuItem(menu, "Delete Key", AllIcons.Actions.GC, this::deleteSelectedValue);
+        menu.addSeparator();
+        addMenuItem(menu, "Copy Key", AllIcons.Actions.Copy, () -> copySelectedColumn(true));
+        addMenuItem(menu, "Copy Value", AllIcons.Actions.Copy, () -> copySelectedColumn(false));
+        return menu;
+    }
+
+    private JPopupMenu createTreePopupMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        addMenuItem(menu, "New Bucket", AllIcons.General.Add, this::createBucket);
+        addMenuItem(menu, "Delete Bucket", AllIcons.Actions.Cancel, this::deleteSelectedBucket);
+        menu.addSeparator();
+        addMenuItem(menu, "Refresh", AllIcons.Actions.Refresh, this::refresh);
+        return menu;
+    }
+
+    private void addMenuItem(JPopupMenu menu, String text, Icon icon, Runnable action) {
+        JMenuItem item = new JMenuItem(text, icon);
+        item.addActionListener(e -> action.run());
+        menu.add(item);
+    }
+
+    private void installTableShortcuts() {
+        InputMap input = keyValueTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+        ActionMap actions = keyValueTable.getActionMap();
+        input.put(KeyStroke.getKeyStroke("INSERT"), "add-key-value");
+        actions.put("add-key-value", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { addKeyValue(); }
+        });
+        input.put(KeyStroke.getKeyStroke("DELETE"), "delete-key-value");
+        actions.put("delete-key-value", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { deleteSelectedValue(); }
+        });
+        input.put(KeyStroke.getKeyStroke("ENTER"), "edit-key-value");
+        actions.put("edit-key-value", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { editSelectedValue(); }
+        });
     }
 
     /**
@@ -370,6 +481,53 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         loadBucketPage();
     }
 
+    private void applyDetailValue() {
+        if (!canEditCurrentBucket() || detailEntry == null) return;
+        String key = detailEntry.getKeyString();
+        runEdit("Updated key: " + key, () ->
+                currentConnection.putValue(new ArrayList<>(currentBucketPath), detailEntry.key, bytes(detailValueArea.getText())));
+    }
+
+    private void updateDetailEditor() {
+        detailEntry = getSelectedValueEntry();
+        if (detailKeyLabel == null || detailValueArea == null) return;
+        if (detailEntry == null) {
+            detailKeyLabel.setText("No row selected");
+            detailValueArea.setText("");
+            detailValueArea.setEnabled(false);
+            updateDetailButtons();
+            return;
+        }
+
+        detailKeyLabel.setText("Key: " + detailEntry.getKeyString());
+        String value = detailEntry.getValueString();
+        try {
+            byte[] fullValue = currentConnection == null ? null : currentConnection.getValue(currentBucketPath, detailEntry.key);
+            if (fullValue != null) value = new String(fullValue, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.warn("Failed to load full value for detail editor", e);
+        }
+        detailValueArea.setText(value);
+        detailValueArea.setCaretPosition(0);
+        detailValueArea.setEnabled(currentConnection != null && currentConnection.supportsEditing());
+        updateDetailButtons();
+    }
+
+    private void updateDetailButtons() {
+        boolean enabled = detailEntry != null && currentConnection != null && currentConnection.supportsEditing();
+        if (applyValueBtn != null) applyValueBtn.setEnabled(enabled);
+        if (revertValueBtn != null) revertValueBtn.setEnabled(enabled);
+    }
+
+    private void copySelectedColumn(boolean key) {
+        DatabaseConnection.Entry entry = getSelectedValueEntry();
+        if (entry == null) return;
+        String text = key ? entry.getKeyString() : entry.getValueString();
+        Toolkit.getDefaultToolkit().getSystemClipboard()
+                .setContents(new java.awt.datatransfer.StringSelection(text), null);
+        statusLabel.setText(key ? "Copied key" : "Copied value");
+    }
+
     private void addKeyValue() {
         if (!canEditCurrentBucket()) return;
         String key = Messages.showInputDialog(project, "Key", "Add Key-Value", null);
@@ -463,6 +621,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                     if (currentBucketPath == null) {
                         ((DefaultTableModel) keyValueTable.getModel()).setRowCount(0);
                         currentVisibleValues.clear();
+                        updateDetailEditor();
                         updatePaginationControls();
                         updateEditControls();
                     } else {
@@ -508,6 +667,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         if (deleteKeyBtn != null) deleteKeyBtn.setEnabled(valueSelected);
         if (createBucketBtn != null) createBucketBtn.setEnabled(editableConnection);
         if (deleteBucketBtn != null) deleteBucketBtn.setEnabled(bucketSelected);
+        updateDetailButtons();
     }
 
     private static byte[] bytes(String value) {

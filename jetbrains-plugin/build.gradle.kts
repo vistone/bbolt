@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.protonail"
-version = "1.0.17"
+version = "1.0.18"
 
 repositories {
     mavenCentral()
@@ -68,5 +68,8 @@ dependencies {
 tasks {
     test {
         useJUnitPlatform()
+        System.getProperty("bbolt.jammdb.native.path")?.let {
+            systemProperty("bbolt.jammdb.native.path", it)
+        }
     }
 }

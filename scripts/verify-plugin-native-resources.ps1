@@ -11,9 +11,13 @@ if (-not (Test-Path -LiteralPath $ZipPath)) {
 
 $required = @(
     'native/win32-x86-64/bolt.dll',
+    'native/win32-x86-64/jammdb_jna.dll',
     'native/linux-x86-64/libbolt.so',
+    'native/linux-x86-64/libjammdb_jna.so',
     'native/darwin-x86-64/libbolt.dylib',
-    'native/darwin-aarch64/libbolt.dylib'
+    'native/darwin-x86-64/libjammdb_jna.dylib',
+    'native/darwin-aarch64/libbolt.dylib',
+    'native/darwin-aarch64/libjammdb_jna.dylib'
 )
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
