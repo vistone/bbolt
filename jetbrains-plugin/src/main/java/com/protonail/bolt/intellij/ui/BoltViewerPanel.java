@@ -15,6 +15,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.components.JBTextField;
 import com.intellij.ui.table.JBTable;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ui.JBUI;
@@ -33,6 +34,7 @@ import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +66,14 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
     private JButton prevPageBtn;
     private JButton nextPageBtn;
     private JBLabel pageLabel;
+    private JBTextField searchField;
+    private JButton addKeyBtn;
+    private JButton editKeyBtn;
+    private JButton deleteKeyBtn;
+    private JButton createBucketBtn;
+    private JButton deleteBucketBtn;
+    private String currentQuery = "";
+    private final List<DatabaseConnection.Entry> currentVisibleValues = new ArrayList<>();
 
     public BoltViewerPanel(@NotNull Project project) {
         super(true, true);
@@ -98,13 +108,19 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         keyValueTable.setRowHeight(JBUI.scale(22));
         keyValueTable.getTableHeader().setReorderingAllowed(false);
         keyValueTable.getEmptyText().setText("Select a bucket to view its key-value pairs");
+        keyValueTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) updateEditControls();
+        });
 
         JBScrollPane tableScroll = new JBScrollPane(keyValueTable);
+        JPanel tablePanel = new JPanel(new BorderLayout());
+        tablePanel.add(createTableCommandBar(), BorderLayout.NORTH);
+        tablePanel.add(tableScroll, BorderLayout.CENTER);
 
         // --- Splitter ---
         JBSplitter splitter = new JBSplitter(false, 0.3f);
         splitter.setFirstComponent(treeScroll);
-        splitter.setSecondComponent(tableScroll);
+        splitter.setSecondComponent(tablePanel);
         splitter.setHonorComponentsMinimumSize(true);
 
         // --- Status bar (bottom-left) ---
@@ -166,6 +182,66 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                 ActionPlaces.UNKNOWN, group, true);
         toolbar.setTargetComponent(this);
         return toolbar.getComponent();
+    }
+
+    @NotNull
+    private JComponent createTableCommandBar() {
+        searchField = new JBTextField();
+        searchField.getEmptyText().setText("Search key or value");
+        searchField.addActionListener(e -> applySearch());
+
+        JButton searchBtn = new JButton(AllIcons.Actions.Search);
+        searchBtn.setToolTipText("Search");
+        searchBtn.addActionListener(e -> applySearch());
+
+        JButton clearSearchBtn = new JButton(AllIcons.Actions.Close);
+        clearSearchBtn.setToolTipText("Clear search");
+        clearSearchBtn.addActionListener(e -> {
+            searchField.setText("");
+            applySearch();
+        });
+
+        addKeyBtn = new JButton("Add", AllIcons.General.Add);
+        addKeyBtn.setToolTipText("Add key-value");
+        addKeyBtn.addActionListener(e -> addKeyValue());
+
+        editKeyBtn = new JButton("Edit", AllIcons.Actions.Edit);
+        editKeyBtn.setToolTipText("Edit selected key-value");
+        editKeyBtn.addActionListener(e -> editSelectedValue());
+
+        deleteKeyBtn = new JButton("Delete", AllIcons.Actions.GC);
+        deleteKeyBtn.setToolTipText("Delete selected key-value");
+        deleteKeyBtn.addActionListener(e -> deleteSelectedValue());
+
+        createBucketBtn = new JButton("Bucket", AllIcons.General.Add);
+        createBucketBtn.setToolTipText("Create bucket under the selected bucket or database");
+        createBucketBtn.addActionListener(e -> createBucket());
+
+        deleteBucketBtn = new JButton("Delete Bucket", AllIcons.Actions.Cancel);
+        deleteBucketBtn.setToolTipText("Delete selected bucket");
+        deleteBucketBtn.addActionListener(e -> deleteSelectedBucket());
+
+        JBPanel<?> bar = new JBPanel<>(new BorderLayout(6, 0));
+        bar.setBorder(JBUI.Borders.empty(4, 4));
+
+        JBPanel<?> searchPanel = new JBPanel<>(new BorderLayout(4, 0));
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        JBPanel<?> searchButtons = new JBPanel<>(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        searchButtons.add(searchBtn);
+        searchButtons.add(clearSearchBtn);
+        searchPanel.add(searchButtons, BorderLayout.EAST);
+
+        JBPanel<?> editPanel = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        editPanel.add(addKeyBtn);
+        editPanel.add(editKeyBtn);
+        editPanel.add(deleteKeyBtn);
+        editPanel.add(createBucketBtn);
+        editPanel.add(deleteBucketBtn);
+
+        bar.add(searchPanel, BorderLayout.CENTER);
+        bar.add(editPanel, BorderLayout.EAST);
+        updateEditControls();
+        return bar;
     }
 
     /**
@@ -244,9 +320,11 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
             currentParentNode = null;
             currentOffset = 0;
             currentTotal = 0;
+            currentVisibleValues.clear();
             DefaultTableModel tm = (DefaultTableModel) keyValueTable.getModel();
             tm.setRowCount(0);
             updatePaginationControls();
+            updateEditControls();
         }
         updateBucketTree();
         statusLabel.setText("Closed: " + dbPath);
@@ -269,9 +347,11 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         currentParentNode = null;
         currentOffset = 0;
         currentTotal = 0;
+        currentVisibleValues.clear();
         DefaultTableModel tm = (DefaultTableModel) keyValueTable.getModel();
         tm.setRowCount(0);
         updatePaginationControls();
+        updateEditControls();
         updateBucketTree();
     }
 
@@ -282,6 +362,160 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         if (currentBucketPath != null && currentConnection != null) {
             loadBucketPage();
         }
+    }
+
+    private void applySearch() {
+        currentQuery = searchField == null ? "" : searchField.getText().trim();
+        currentOffset = 0;
+        loadBucketPage();
+    }
+
+    private void addKeyValue() {
+        if (!canEditCurrentBucket()) return;
+        String key = Messages.showInputDialog(project, "Key", "Add Key-Value", null);
+        if (key == null || key.isEmpty()) return;
+        String value = Messages.showInputDialog(project, "Value", "Add Key-Value", null);
+        if (value == null) return;
+        runEdit("Added key: " + key, () ->
+                currentConnection.putValue(new ArrayList<>(currentBucketPath), bytes(key), bytes(value)));
+    }
+
+    private void editSelectedValue() {
+        if (!canEditCurrentBucket()) return;
+        DatabaseConnection.Entry entry = getSelectedValueEntry();
+        if (entry == null) {
+            Messages.showInfoMessage(project, "Select a key-value row first.", "Edit Key-Value");
+            return;
+        }
+        String key = entry.getKeyString();
+        String existingValue = entry.getValueString();
+        try {
+            byte[] fullValue = currentConnection.getValue(currentBucketPath, entry.key);
+            if (fullValue != null) existingValue = new String(fullValue, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.warn("Failed to load full value for " + key, e);
+        }
+        String value = Messages.showInputDialog(project, "Value", "Edit Key-Value", null, existingValue, null);
+        if (value == null) return;
+        runEdit("Updated key: " + key, () ->
+                currentConnection.putValue(new ArrayList<>(currentBucketPath), entry.key, bytes(value)));
+    }
+
+    private void deleteSelectedValue() {
+        if (!canEditCurrentBucket()) return;
+        DatabaseConnection.Entry entry = getSelectedValueEntry();
+        if (entry == null) {
+            Messages.showInfoMessage(project, "Select a key-value row first.", "Delete Key-Value");
+            return;
+        }
+        if (Messages.showYesNoDialog(project, "Delete key '" + entry.getKeyString() + "'?",
+                "Delete Key-Value", Messages.getQuestionIcon()) != Messages.YES) {
+            return;
+        }
+        runEdit("Deleted key: " + entry.getKeyString(), () ->
+                currentConnection.deleteValue(new ArrayList<>(currentBucketPath), entry.key));
+    }
+
+    private void createBucket() {
+        if (currentConnection == null || !currentConnection.supportsEditing()) {
+            Messages.showInfoMessage(project, "The selected database does not support editing.", "Create Bucket");
+            return;
+        }
+        List<byte[]> parentPath = currentBucketPath == null ? Collections.emptyList() : new ArrayList<>(currentBucketPath);
+        String name = Messages.showInputDialog(project, "Bucket name", "Create Bucket", null);
+        if (name == null || name.isEmpty()) return;
+        runEdit("Created bucket: " + name,
+                () -> currentConnection.createBucket(parentPath, bytes(name)),
+                parentPath.isEmpty());
+    }
+
+    private void deleteSelectedBucket() {
+        if (currentConnection == null || currentBucketPath == null || !currentConnection.supportsEditing()) {
+            Messages.showInfoMessage(project, "Select an editable bucket first.", "Delete Bucket");
+            return;
+        }
+        String bucketName = new String(currentBucketPath.get(currentBucketPath.size() - 1), StandardCharsets.UTF_8);
+        if (Messages.showYesNoDialog(project, "Delete bucket '" + bucketName + "' and all of its contents?",
+                "Delete Bucket", Messages.getWarningIcon()) != Messages.YES) {
+            return;
+        }
+        List<byte[]> parentPath = currentBucketPath.size() == 1
+                ? Collections.emptyList()
+                : new ArrayList<>(currentBucketPath.subList(0, currentBucketPath.size() - 1));
+        byte[] name = currentBucketPath.get(currentBucketPath.size() - 1);
+        runEdit("Deleted bucket: " + bucketName,
+                () -> currentConnection.deleteBucket(parentPath, name),
+                true);
+        currentBucketPath = null;
+        currentParentNode = null;
+    }
+
+    private void runEdit(String successMessage, EditOperation operation) {
+        runEdit(successMessage, operation, false);
+    }
+
+    private void runEdit(String successMessage, EditOperation operation, boolean refreshTree) {
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                operation.run();
+                SwingUtilities.invokeLater(() -> {
+                    if (refreshTree) updateBucketTree();
+                    if (currentBucketPath == null) {
+                        ((DefaultTableModel) keyValueTable.getModel()).setRowCount(0);
+                        currentVisibleValues.clear();
+                        updatePaginationControls();
+                        updateEditControls();
+                    } else {
+                        loadBucketPage();
+                    }
+                    statusLabel.setText(successMessage);
+                });
+            } catch (Exception e) {
+                LOG.error(successMessage + " failed", e);
+                SwingUtilities.invokeLater(() ->
+                        Messages.showErrorDialog(project, e.getMessage(), "Edit Failed"));
+            }
+        });
+    }
+
+    private boolean canEditCurrentBucket() {
+        if (currentConnection == null || currentBucketPath == null) {
+            Messages.showInfoMessage(project, "Select an editable bucket first.", "Edit");
+            return false;
+        }
+        if (!currentConnection.supportsEditing()) {
+            Messages.showInfoMessage(project, "The selected database does not support editing.", "Edit");
+            return false;
+        }
+        return true;
+    }
+
+    @Nullable
+    private DatabaseConnection.Entry getSelectedValueEntry() {
+        int selectedRow = keyValueTable.getSelectedRow();
+        if (selectedRow < 0) return null;
+        int modelRow = keyValueTable.convertRowIndexToModel(selectedRow);
+        if (modelRow < 0 || modelRow >= currentVisibleValues.size()) return null;
+        return currentVisibleValues.get(modelRow);
+    }
+
+    private void updateEditControls() {
+        boolean editableConnection = currentConnection != null && currentConnection.supportsEditing();
+        boolean bucketSelected = editableConnection && currentBucketPath != null;
+        boolean valueSelected = bucketSelected && getSelectedValueEntry() != null;
+        if (addKeyBtn != null) addKeyBtn.setEnabled(bucketSelected);
+        if (editKeyBtn != null) editKeyBtn.setEnabled(valueSelected);
+        if (deleteKeyBtn != null) deleteKeyBtn.setEnabled(valueSelected);
+        if (createBucketBtn != null) createBucketBtn.setEnabled(editableConnection);
+        if (deleteBucketBtn != null) deleteBucketBtn.setEnabled(bucketSelected);
+    }
+
+    private static byte[] bytes(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private interface EditOperation {
+        void run() throws Exception;
     }
 
     public boolean hasOpenDatabase() {
@@ -364,7 +598,9 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
             currentParentNode = null;
             currentOffset = 0;
             currentTotal = 0;
+            currentVisibleValues.clear();
             updatePaginationControls();
+            updateEditControls();
             if (currentConnection != null) {
                 statusLabel.setText("Database: " + currentConnection.getDisplayName() +
                         " (" + currentConnection.getFormatName() + ")");
@@ -409,7 +645,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
 
         ApplicationManager.getApplication().executeOnPooledThread(() -> {
             try {
-                DatabaseConnection.EntryPage page = conn.listBucketEntries(bucketPath, offset, limit);
+                DatabaseConnection.EntryPage page = conn.queryBucketEntries(bucketPath, currentQuery, offset, limit);
                 SwingUtilities.invokeLater(() -> {
                     if (currentConnection != conn || currentBucketPath == null ||
                         !pathsEqual(currentBucketPath, bucketPath)) {
@@ -418,6 +654,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                     currentTotal = page.total;
                     renderEntries(page.entries);
                     updatePaginationControls();
+                    updateEditControls();
                 });
             } catch (Exception e) {
                 LOG.error("Failed to load bucket page", e);
@@ -434,6 +671,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
 
     private void renderEntries(List<DatabaseConnection.Entry> entries) {
         DefaultTableModel tableModel = (DefaultTableModel) keyValueTable.getModel();
+        currentVisibleValues.clear();
         for (DatabaseConnection.Entry entry : entries) {
             String keyStr = entry.getKeyString();
             if (entry.isBucket) {
@@ -447,6 +685,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                 if (entry.valueTruncated) {
                     valueStr = valueStr + "... (" + entry.fullValueSize + " bytes, truncated)";
                 }
+                currentVisibleValues.add(entry);
                 tableModel.addRow(new Object[]{keyStr, valueStr});
             }
         }
@@ -468,8 +707,9 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         long shown = currentBucketPath == null ? 0
                 : Math.min(PAGE_SIZE, Math.max(0, currentTotal - currentOffset));
         if (currentBucketPath != null) {
+            String noun = currentQuery == null || currentQuery.isEmpty() ? "key(s)" : "match(es)";
             statusLabel.setText("Bucket: " + pathDesc +
-                    " | showing " + shown + " of " + currentTotal + " key(s)");
+                    " | showing " + shown + " of " + currentTotal + " " + noun);
         }
     }
 

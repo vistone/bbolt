@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Abstracts a single open database connection (either bbolt via JNA or jammdb via pure Java).
@@ -47,6 +48,62 @@ public abstract class DatabaseConnection implements AutoCloseable {
      * @return a page of entries plus the total count
      */
     public abstract EntryPage listBucketEntries(List<byte[]> bucketPath, long offset, int limit) throws Exception;
+
+    /** True when this connection can persist edits. */
+    public boolean supportsEditing() {
+        return false;
+    }
+
+    /** Lists entries whose key or value contains the query text. */
+    public EntryPage queryBucketEntries(List<byte[]> bucketPath, String query, long offset, int limit) throws Exception {
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (normalizedQuery.isEmpty()) {
+            return listBucketEntries(bucketPath, offset, limit);
+        }
+        if (limit <= 0) limit = 500;
+
+        List<Entry> matches = new ArrayList<>(limit);
+        long total = 0;
+        long seen = 0;
+        EntryPage page;
+        do {
+            page = listBucketEntries(bucketPath, seen, 500);
+            for (Entry entry : page.entries) {
+                if (entryMatches(entry, normalizedQuery)) {
+                    if (total >= offset && matches.size() < limit) {
+                        matches.add(entry);
+                    }
+                    total++;
+                }
+            }
+            seen += page.entries.size();
+        } while (seen < page.total && !page.entries.isEmpty());
+        return new EntryPage(matches, total, offset, limit);
+    }
+
+    public byte[] getValue(List<byte[]> bucketPath, byte[] key) throws Exception {
+        throw unsupportedEditing();
+    }
+
+    public void putValue(List<byte[]> bucketPath, byte[] key, byte[] value) throws Exception {
+        throw unsupportedEditing();
+    }
+
+    public void deleteValue(List<byte[]> bucketPath, byte[] key) throws Exception {
+        throw unsupportedEditing();
+    }
+
+    public void createBucket(List<byte[]> parentBucketPath, byte[] bucketName) throws Exception {
+        throw unsupportedEditing();
+    }
+
+    public void deleteBucket(List<byte[]> parentBucketPath, byte[] bucketName) throws Exception {
+        throw unsupportedEditing();
+    }
+
+    protected UnsupportedOperationException unsupportedEditing() {
+        return new UnsupportedOperationException(getFormatName() + " does not support editing");
+    }
 
     /** Closes the underlying database handle. */
     @Override
@@ -105,13 +162,7 @@ public abstract class DatabaseConnection implements AutoCloseable {
         public BoltConnection(String dbPath) throws Exception {
             super(dbPath, extractFileName(dbPath));
             BoltNativeLoader.ensureLoaded();
-            // Open read-only with a generous timeout. The plugin is a browser,
-            // not an editor — read-only mode acquires a *shared* file lock
-            // (LOCK_SH) that does not conflict with the exclusive lock held by
-            // the process that owns the database (e.g. etcd). The previous
-            // read-write mode (exclusive lock) with a 5s timeout caused
-            // "timeout" errors whenever the file was already locked.
-            BoltOptions options = new BoltOptions(60000, false, true, 0, 0);
+            BoltOptions options = new BoltOptions(60000, false, false, 0, 0);
             try {
                 this.bolt = new Bolt(dbPath, BoltFileMode.DEFAULT, options);
             } finally {
@@ -121,6 +172,9 @@ public abstract class DatabaseConnection implements AutoCloseable {
 
         @Override
         public String getFormatName() { return "bbolt"; }
+
+        @Override
+        public boolean supportsEditing() { return true; }
 
         @Override
         public List<byte[]> listRootBuckets() throws Exception {
@@ -173,6 +227,74 @@ public abstract class DatabaseConnection implements AutoCloseable {
                 }
             });
             return new EntryPage(entries, totalHolder[0], offset, limit);
+        }
+
+        @Override
+        public byte[] getValue(List<byte[]> bucketPath, byte[] key) {
+            final byte[][] valueHolder = new byte[1][];
+            bolt.view(tx -> {
+                BoltBucket bucket = navigateBboltBucket(tx, bucketPath);
+                try {
+                    valueHolder[0] = bucket.get(key);
+                } finally {
+                    bucket.close();
+                }
+            });
+            return valueHolder[0];
+        }
+
+        @Override
+        public void putValue(List<byte[]> bucketPath, byte[] key, byte[] value) {
+            bolt.update(tx -> {
+                BoltBucket bucket = navigateBboltBucket(tx, bucketPath);
+                try {
+                    bucket.put(key, value);
+                } finally {
+                    bucket.close();
+                }
+            });
+        }
+
+        @Override
+        public void deleteValue(List<byte[]> bucketPath, byte[] key) {
+            bolt.update(tx -> {
+                BoltBucket bucket = navigateBboltBucket(tx, bucketPath);
+                try {
+                    bucket.delete(key);
+                } finally {
+                    bucket.close();
+                }
+            });
+        }
+
+        @Override
+        public void createBucket(List<byte[]> parentBucketPath, byte[] bucketName) {
+            bolt.update(tx -> {
+                BoltBucket parent = parentBucketPath.isEmpty() ? null : navigateBboltBucket(tx, parentBucketPath);
+                try (BoltBucket created = parent == null
+                        ? tx.createBucketIfNotExists(bucketName)
+                        : parent.createBucketIfNotExists(bucketName)) {
+                    // Native call above creates the bucket if needed.
+                } finally {
+                    if (parent != null) parent.close();
+                }
+            });
+        }
+
+        @Override
+        public void deleteBucket(List<byte[]> parentBucketPath, byte[] bucketName) {
+            bolt.update(tx -> {
+                BoltBucket parent = parentBucketPath.isEmpty() ? null : navigateBboltBucket(tx, parentBucketPath);
+                try {
+                    if (parent == null) {
+                        tx.deleteBucket(bucketName);
+                    } else {
+                        parent.deleteBucket(bucketName);
+                    }
+                } finally {
+                    if (parent != null) parent.close();
+                }
+            });
         }
 
         @Override
@@ -235,6 +357,11 @@ public abstract class DatabaseConnection implements AutoCloseable {
         }
 
         @Override
+        public byte[] getValue(List<byte[]> bucketPath, byte[] key) throws IOException {
+            return reader.getValue(bucketPath, key);
+        }
+
+        @Override
         public void close() {
             try { reader.close(); } catch (Exception ignored) {}
         }
@@ -257,5 +384,12 @@ public abstract class DatabaseConnection implements AutoCloseable {
         idx = path.lastIndexOf('\\');
         if (idx >= 0) return path.substring(idx + 1);
         return path;
+    }
+
+    private static boolean entryMatches(Entry entry, String normalizedQuery) {
+        if (entry.getKeyString().toLowerCase(Locale.ROOT).contains(normalizedQuery)) {
+            return true;
+        }
+        return !entry.isBucket && entry.getValueString().toLowerCase(Locale.ROOT).contains(normalizedQuery);
     }
 }
