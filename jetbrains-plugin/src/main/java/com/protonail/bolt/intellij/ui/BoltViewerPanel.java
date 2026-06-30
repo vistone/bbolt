@@ -7,9 +7,12 @@ import com.intellij.openapi.actionSystem.ActionToolbar;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileChooser.FileChooserFactory;
+import com.intellij.openapi.fileChooser.FileSaverDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
+import com.intellij.openapi.vfs.VirtualFileWrapper;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
@@ -21,6 +24,7 @@ import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.protonail.bolt.intellij.actions.CloseDatabaseAction;
+import com.protonail.bolt.intellij.actions.CreateDatabaseAction;
 import com.protonail.bolt.intellij.actions.OpenDatabaseAction;
 import com.protonail.bolt.intellij.actions.RefreshAction;
 import org.jetbrains.annotations.NotNull;
@@ -197,6 +201,7 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
     @NotNull
     private JComponent createActionToolbar() {
         DefaultActionGroup group = new DefaultActionGroup();
+        group.add(new CreateDatabaseAction(this));
         group.add(new OpenDatabaseAction(this));
         group.addSeparator();
         group.add(new CloseDatabaseAction(this));
@@ -206,6 +211,56 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
                 ActionPlaces.UNKNOWN, group, true);
         toolbar.setTargetComponent(this);
         return toolbar.getComponent();
+    }
+
+    /**
+     * Creates a new database, then opens it in the browser.
+     */
+    public void createDatabaseDialog() {
+        String[] formats = {
+                DatabaseConnection.DatabaseFormat.BBOLT.getDisplayName(),
+                DatabaseConnection.DatabaseFormat.JAMMDB.getDisplayName()
+        };
+        int selected = Messages.showChooseDialog(
+                project,
+                "Select the database format to create.",
+                "New Database",
+                AllIcons.General.Add,
+                formats,
+                formats[0]);
+        if (selected < 0) {
+            return;
+        }
+
+        DatabaseConnection.DatabaseFormat format = selected == 1
+                ? DatabaseConnection.DatabaseFormat.JAMMDB
+                : DatabaseConnection.DatabaseFormat.BBOLT;
+        String defaultName = format == DatabaseConnection.DatabaseFormat.JAMMDB ? "new-jammdb.db" : "new-bbolt.db";
+        FileSaverDescriptor descriptor = new FileSaverDescriptor(
+                "Create " + format.getDisplayName() + " Database",
+                "Choose where to create the new database file.",
+                "db");
+        VirtualFileWrapper file = FileChooserFactory.getInstance()
+                .createSaveFileDialog(descriptor, project)
+                .save((java.nio.file.Path) null, defaultName);
+        if (file == null) {
+            return;
+        }
+
+        String dbPath = file.getFile().getAbsolutePath();
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                DatabaseConnection.createDatabase(dbPath, format);
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Created (" + format.getDisplayName() + "): " + dbPath);
+                    openDatabase(dbPath);
+                });
+            } catch (Exception e) {
+                LOG.error("Failed to create database: " + dbPath, e);
+                SwingUtilities.invokeLater(() ->
+                        Messages.showErrorDialog(project, "Failed to create database: " + e.getMessage(), "Error"));
+            }
+        });
     }
 
     @NotNull

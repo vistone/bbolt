@@ -13,6 +13,7 @@ import com.protonail.bolt.jna.BoltTransaction;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,6 +25,21 @@ import java.util.Locale;
  * Allows the UI to treat multiple open databases uniformly and independently.
  */
 public abstract class DatabaseConnection implements AutoCloseable {
+
+    public enum DatabaseFormat {
+        BBOLT("bbolt"),
+        JAMMDB("jammdb");
+
+        private final String displayName;
+
+        DatabaseFormat(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+    }
 
     protected final String dbPath;
     protected final String displayName;
@@ -427,6 +443,30 @@ public abstract class DatabaseConnection implements AutoCloseable {
             return new JammdbConnection(dbPath);
         }
         return new BoltConnection(dbPath);
+    }
+
+    public static void createDatabase(String dbPath, DatabaseFormat format) throws Exception {
+        Path path = Path.of(dbPath);
+        if (Files.exists(path)) {
+            throw new IllegalArgumentException("Database file already exists: " + dbPath);
+        }
+        Path parent = path.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        if (format == DatabaseFormat.JAMMDB) {
+            JammdbNative.check(JammdbNative.INSTANCE.Jammdb_CreateDatabase(dbPath));
+            return;
+        }
+
+        BoltNativeLoader.ensureLoaded();
+        BoltOptions options = new BoltOptions(60000, false, false, 0, 0);
+        try (Bolt bolt = new Bolt(dbPath, BoltFileMode.DEFAULT, options)) {
+            // Opening a missing bbolt file initializes the database.
+        } finally {
+            options.close();
+        }
     }
 
     private static String extractFileName(String path) {

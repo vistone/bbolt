@@ -7,6 +7,17 @@ use std::slice;
 const PATH_SEPARATOR: &str = "\u{001f}";
 
 #[no_mangle]
+pub extern "C" fn Jammdb_CreateDatabase(db_path: *const c_char) -> *mut c_char {
+    run_result(|| {
+        let db_path = read_c_string(db_path)?;
+        let db = DB::open(Path::new(&db_path))?;
+        let tx = db.tx(true)?;
+        tx.commit()?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn Jammdb_PutValue(
     db_path: *const c_char,
     bucket_path: *const c_char,
