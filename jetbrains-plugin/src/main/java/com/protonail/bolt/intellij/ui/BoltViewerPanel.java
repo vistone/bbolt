@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
+import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
@@ -78,12 +79,17 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
     private JButton createBucketBtn;
     private JButton deleteBucketBtn;
     private JBLabel detailKeyLabel;
+    private JBLabel recordMetaLabel;
     private JTextArea detailValueArea;
     private JButton applyValueBtn;
     private JButton revertValueBtn;
+    private JButton copyKeyBtn;
+    private JButton copyValueBtn;
+    private JButton deleteRecordBtn;
     @Nullable private DatabaseConnection.Entry detailEntry = null;
     private String currentQuery = "";
     private final List<DatabaseConnection.Entry> currentVisibleValues = new ArrayList<>();
+    private final RecordEditorState recordEditorState = new RecordEditorState();
 
     public BoltViewerPanel(@NotNull Project project) {
         super(true, true);
@@ -354,18 +360,29 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
 
     @NotNull
     private JComponent createDetailEditor() {
-        detailKeyLabel = new JBLabel("No row selected");
+        detailKeyLabel = new JBLabel("Record Editor");
         detailKeyLabel.setBorder(JBUI.Borders.empty(0, 2));
 
-        detailValueArea = new JTextArea(4, 20);
-        detailValueArea.setLineWrap(true);
+        recordMetaLabel = new JBLabel("No record selected");
+        recordMetaLabel.setForeground(UIUtil.getContextHelpForeground());
+        recordMetaLabel.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
+
+        detailValueArea = new JTextArea(8, 40);
+        detailValueArea.setLineWrap(false);
         detailValueArea.setWrapStyleWord(false);
         detailValueArea.setFont(UIUtil.getLabelFont());
+        detailValueArea.setTabSize(2);
         detailValueArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { updateDetailButtons(); }
             @Override public void removeUpdate(DocumentEvent e) { updateDetailButtons(); }
             @Override public void changedUpdate(DocumentEvent e) { updateDetailButtons(); }
         });
+
+        copyKeyBtn = new JButton("Copy Key", AllIcons.Actions.Copy);
+        copyKeyBtn.addActionListener(e -> copySelectedColumn(true));
+
+        copyValueBtn = new JButton("Copy Value", AllIcons.Actions.Copy);
+        copyValueBtn.addActionListener(e -> copySelectedColumn(false));
 
         applyValueBtn = new JButton("Apply", AllIcons.Actions.Commit);
         applyValueBtn.addActionListener(e -> applyDetailValue());
@@ -373,13 +390,22 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         revertValueBtn = new JButton("Revert", AllIcons.Actions.Rollback);
         revertValueBtn.addActionListener(e -> updateDetailEditor());
 
+        deleteRecordBtn = new JButton("Delete", AllIcons.Actions.GC);
+        deleteRecordBtn.addActionListener(e -> deleteSelectedValue());
+
         JBPanel<?> header = new JBPanel<>(new BorderLayout(6, 0));
         header.setBorder(JBUI.Borders.empty(4, 4));
-        header.add(detailKeyLabel, BorderLayout.CENTER);
+        JBPanel<?> titlePanel = new JBPanel<>(new BorderLayout(0, 2));
+        titlePanel.add(detailKeyLabel, BorderLayout.NORTH);
+        titlePanel.add(recordMetaLabel, BorderLayout.SOUTH);
+        header.add(titlePanel, BorderLayout.CENTER);
 
         JBPanel<?> buttons = new JBPanel<>(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        buttons.add(copyKeyBtn);
+        buttons.add(copyValueBtn);
         buttons.add(revertValueBtn);
         buttons.add(applyValueBtn);
+        buttons.add(deleteRecordBtn);
         header.add(buttons, BorderLayout.EAST);
 
         JBPanel<?> panel = new JBPanel<>(new BorderLayout());
@@ -562,22 +588,26 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
     private void applyDetailValue() {
         if (!canEditCurrentBucket() || detailEntry == null) return;
         String key = detailEntry.getKeyString();
+        String newValue = detailValueArea.getText();
         runEdit("Updated key: " + key, () ->
-                currentConnection.putValue(new ArrayList<>(currentBucketPath), detailEntry.key, bytes(detailValueArea.getText())));
+                currentConnection.putValue(new ArrayList<>(currentBucketPath), detailEntry.key, bytes(newValue)));
     }
 
     private void updateDetailEditor() {
         detailEntry = getSelectedValueEntry();
         if (detailKeyLabel == null || detailValueArea == null) return;
         if (detailEntry == null) {
-            detailKeyLabel.setText("No row selected");
+            recordEditorState.clear();
+            detailKeyLabel.setText("Record Editor");
+            if (recordMetaLabel != null) recordMetaLabel.setText("No record selected");
             detailValueArea.setText("");
             detailValueArea.setEnabled(false);
             updateDetailButtons();
             return;
         }
 
-        detailKeyLabel.setText("Key: " + detailEntry.getKeyString());
+        String key = detailEntry.getKeyString();
+        detailKeyLabel.setText("Key: " + key);
         String value = detailEntry.getValueString();
         try {
             byte[] fullValue = currentConnection == null ? null : currentConnection.getValue(currentBucketPath, detailEntry.key);
@@ -585,16 +615,22 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         } catch (Exception e) {
             LOG.warn("Failed to load full value for detail editor", e);
         }
+        boolean editable = currentConnection != null && currentConnection.supportsEditing();
+        recordEditorState.load(key, value, editable);
         detailValueArea.setText(value);
         detailValueArea.setCaretPosition(0);
-        detailValueArea.setEnabled(currentConnection != null && currentConnection.supportsEditing());
+        detailValueArea.setEnabled(editable);
         updateDetailButtons();
     }
 
     private void updateDetailButtons() {
-        boolean enabled = detailEntry != null && currentConnection != null && currentConnection.supportsEditing();
-        if (applyValueBtn != null) applyValueBtn.setEnabled(enabled);
-        if (revertValueBtn != null) revertValueBtn.setEnabled(enabled);
+        String currentText = detailValueArea == null ? "" : detailValueArea.getText();
+        if (applyValueBtn != null) applyValueBtn.setEnabled(recordEditorState.canApply(currentText));
+        if (revertValueBtn != null) revertValueBtn.setEnabled(recordEditorState.canRevert(currentText));
+        if (copyKeyBtn != null) copyKeyBtn.setEnabled(recordEditorState.canCopy());
+        if (copyValueBtn != null) copyValueBtn.setEnabled(recordEditorState.canCopy());
+        if (deleteRecordBtn != null) deleteRecordBtn.setEnabled(recordEditorState.canDelete());
+        if (recordMetaLabel != null) recordMetaLabel.setText(buildRecordMeta(currentText));
     }
 
     private void copySelectedColumn(boolean key) {
@@ -608,10 +644,10 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
 
     private void addKeyValue() {
         if (!canEditCurrentBucket()) return;
-        String key = Messages.showInputDialog(project, "Key", "Add Key-Value", null);
-        if (key == null || key.isEmpty()) return;
-        String value = Messages.showInputDialog(project, "Value", "Add Key-Value", null);
-        if (value == null) return;
+        AddKeyValueDialog dialog = new AddKeyValueDialog(project);
+        if (!dialog.showAndGet()) return;
+        String key = dialog.getKeyText();
+        String value = dialog.getValueText();
         runEdit("Added key: " + key, () ->
                 currentConnection.putValue(new ArrayList<>(currentBucketPath), bytes(key), bytes(value)));
     }
@@ -620,21 +656,12 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         if (!canEditCurrentBucket()) return;
         DatabaseConnection.Entry entry = getSelectedValueEntry();
         if (entry == null) {
-            Messages.showInfoMessage(project, "Select a key-value row first.", "Edit Key-Value");
+            Messages.showInfoMessage(project, "Select a key-value row first.", "Record Editor");
             return;
         }
-        String key = entry.getKeyString();
-        String existingValue = entry.getValueString();
-        try {
-            byte[] fullValue = currentConnection.getValue(currentBucketPath, entry.key);
-            if (fullValue != null) existingValue = new String(fullValue, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            LOG.warn("Failed to load full value for " + key, e);
-        }
-        String value = Messages.showInputDialog(project, "Value", "Edit Key-Value", null, existingValue, null);
-        if (value == null) return;
-        runEdit("Updated key: " + key, () ->
-                currentConnection.putValue(new ArrayList<>(currentBucketPath), entry.key, bytes(value)));
+        detailValueArea.requestFocusInWindow();
+        detailValueArea.selectAll();
+        statusLabel.setText("Editing key: " + entry.getKeyString());
     }
 
     private void deleteSelectedValue() {
@@ -748,8 +775,113 @@ public class BoltViewerPanel extends SimpleToolWindowPanel {
         updateDetailButtons();
     }
 
+    @NotNull
+    private String buildRecordMeta(String currentText) {
+        if (!recordEditorState.hasRecord()) {
+            return "No record selected";
+        }
+
+        String format = currentConnection == null ? "database" : currentConnection.getFormatName();
+        String editState = recordEditorState.editable() ? "editable" : "read-only";
+        int byteSize = currentText == null ? 0 : currentText.getBytes(StandardCharsets.UTF_8).length;
+        String dirty = recordEditorState.isDirty(currentText) ? " | Modified" : "";
+        return byteSize + " bytes | " + format + " | " + editState + dirty;
+    }
+
     private static byte[] bytes(String value) {
         return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    static final class AddKeyValueDialogModel {
+        boolean isValidKey(String key) {
+            return key != null && !key.trim().isEmpty();
+        }
+
+        String normalizeValue(String value) {
+            return value == null ? "" : value;
+        }
+    }
+
+    private static final class AddKeyValueDialog extends DialogWrapper {
+        private final AddKeyValueDialogModel model = new AddKeyValueDialogModel();
+        private final JBTextField keyField = new JBTextField();
+        private final JTextArea valueArea = new JTextArea(10, 48);
+
+        private AddKeyValueDialog(@NotNull Project project) {
+            super(project, true);
+            setTitle("Add Key-Value");
+            init();
+        }
+
+        String getKeyText() {
+            return keyField.getText().trim();
+        }
+
+        String getValueText() {
+            return model.normalizeValue(valueArea.getText());
+        }
+
+        @Override
+        protected @Nullable ValidationInfo doValidate() {
+            if (!model.isValidKey(keyField.getText())) {
+                return new ValidationInfo("Key is required", keyField);
+            }
+            return null;
+        }
+
+        @Override
+        protected @Nullable JComponent createCenterPanel() {
+            valueArea.setLineWrap(false);
+            valueArea.setWrapStyleWord(false);
+            valueArea.setTabSize(2);
+            valueArea.setFont(UIUtil.getLabelFont());
+
+            JBPanel<?> panel = new JBPanel<>(new BorderLayout(8, 8));
+            panel.setBorder(JBUI.Borders.empty(8));
+
+            JBPanel<?> keyPanel = new JBPanel<>(new BorderLayout(6, 0));
+            keyPanel.add(new JBLabel("Key:"), BorderLayout.WEST);
+            keyPanel.add(keyField, BorderLayout.CENTER);
+
+            JBPanel<?> valuePanel = new JBPanel<>(new BorderLayout(0, 4));
+            valuePanel.add(new JBLabel("Value:"), BorderLayout.NORTH);
+            valuePanel.add(new JBScrollPane(valueArea), BorderLayout.CENTER);
+
+            panel.add(keyPanel, BorderLayout.NORTH);
+            panel.add(valuePanel, BorderLayout.CENTER);
+            return panel;
+        }
+    }
+
+    static final class RecordEditorState {
+        private String key = "";
+        private String loadedValue = "";
+        private boolean hasRecord = false;
+        private boolean editable = false;
+
+        void clear() {
+            key = "";
+            loadedValue = "";
+            hasRecord = false;
+            editable = false;
+        }
+
+        void load(String key, String loadedValue, boolean editable) {
+            this.key = key == null ? "" : key;
+            this.loadedValue = loadedValue == null ? "" : loadedValue;
+            this.hasRecord = true;
+            this.editable = editable;
+        }
+
+        String key() { return key; }
+        String loadedValue() { return loadedValue; }
+        boolean hasRecord() { return hasRecord; }
+        boolean editable() { return hasRecord && editable; }
+        boolean isDirty(String currentValue) { return hasRecord && !loadedValue.equals(currentValue == null ? "" : currentValue); }
+        boolean canApply(String currentValue) { return editable() && isDirty(currentValue); }
+        boolean canRevert(String currentValue) { return hasRecord && isDirty(currentValue); }
+        boolean canCopy() { return hasRecord; }
+        boolean canDelete() { return editable(); }
     }
 
     private interface EditOperation {
